@@ -27,9 +27,10 @@ clearly written by an insane person.
 ## Example
 
 ```music
-treble A 4/4 Cm7[0,1,2,30:8,30:8]:4 %:2 Bb Bbb
+treble A 4/4 Bm7[0,1,2,30:8,30:8]:4 %:2 Bb Bbb
 ```
 
+![example](https://raw.githubusercontent.com/isovector/hs-vexflow/master/example.png "example")
 
-
+Pretty easy!
 
