@@ -36,6 +36,7 @@ data StaveNote deriving (Typeable)
 data Formatter deriving (Typeable)
 data Bar deriving (Typeable)
 data Beam deriving (Typeable)
+data Tuplet deriving (Typeable)
 
 type DSQ = Int
 
@@ -58,16 +59,23 @@ type JSM = State JSState
 data JSState = JSState
   { jssContent     :: String
   , jssDrawQueue   :: [String]
+  , jssDrawLate    :: [String]
   , jssFresh       :: Int
   , jssAccidentals :: M.Map Note Int
+  , jssClef        :: Clef
   }
   deriving (Eq, Show, Ord, Read, Generic)
 
 
 runJSM :: JSM a -> String
 runJSM js =
-  let jss = execState js $ JSState "" [] 0 mempty
-   in jssContent jss ++ intercalate "\n" (jssDrawQueue jss)
+  let jss = execState js $ JSState "" [] [] 0 mempty Treble
+   in mconcat
+        [ jssContent jss
+        , intercalate "\n" $ jssDrawQueue jss
+        , "\n"
+        , intercalate "\n" $ jssDrawLate jss
+        ]
 
 
 freshName :: forall a. Typeable a => JSM (JS a)
@@ -100,6 +108,9 @@ emitDraw (JS name) =
 emitQueue :: String -> JSM ()
 emitQueue e = modify $ field @"jssDrawQueue" <>~ [e]
 
+emitLate :: String -> JSM ()
+emitLate e = modify $ field @"jssDrawLate" <>~ [e]
+
 
 drawClef :: JS Bar -> Clef -> JSM ()
 drawClef s c = emit [qc|{s}.addClef("{show c & _head %~ toLower}");|]
@@ -111,6 +122,22 @@ drawTimeSig s (t, b) = emit [qc|{s}.addTimeSignature("{t}/{b}");|]
 
 drawKeySig :: JS Bar -> Note -> JSM ()
 drawKeySig s n = emit [qc|{s}.addKeySignature("{n}");|]
+
+drawCompress :: Element -> Int -> Dur -> JSM [JS StaveNote]
+drawCompress es i _ = do
+  v <- drawElement es
+  t <- freshName @Tuplet
+
+  emit $ mconcat
+    [ [qc|var {t} = new Vex.Flow.Tuplet([{intercalate "," $ fmap show v}], |]
+    , "{"
+    , [qc|notes_occupied: {i}|]
+    , "});"
+    ]
+
+  emitLate [qc|{t}.setContext({context}).draw();|]
+  pure v
+
 
 
 drawElement :: Element -> JSM [JS StaveNote]
@@ -124,6 +151,7 @@ drawElement (EChord c o i ns) =
 drawElement (ERest d) = fmap pure $ drawNotes True [(B, 4)] d
 drawElement (ERhythm d) = fmap pure $ drawRhythm d
 drawElement (EGroup es) = fmap join $ traverse drawElement es
+drawElement (ECompress es i d) = drawCompress es i d
 
 drawRhythm :: Dur -> JSM (JS StaveNote)
 drawRhythm d = do
@@ -146,10 +174,11 @@ drawNotes isRest notes d = do
   v <- freshName
   let jsNotes = intercalate "\",\""
               $ fmap (\(n, o) -> [qc|{uglyShowNote n}/{o}|]) notes
+  clef <- gets jssClef
   emit $ mconcat
     [ [qc|var {v} = new VF.StaveNote(|]
     , "{"
-    , [qc|keys: ["{jsNotes}"], duration: "{d}{bool "" "r" isRest}"|]
+    , [qc|keys: ["{jsNotes}"], clef: "{show clef & _head %~ toLower}", duration: "{d}{bool "" "r" isRest}"|]
     , "});"
     ]
   doAccidentals v $ fmap fst notes
@@ -209,11 +238,12 @@ accidentalsForKey c =
 
 
 getActivity :: Element -> [Dur]
-getActivity (EChord _ _ _ d) = fmap snd d
-getActivity (ENote _ _ d)    = pure d
-getActivity (ERest d)        = pure d
-getActivity (ERhythm d)      = pure d
-getActivity (EGroup g)       = g >>= getActivity
+getActivity (EChord _ _ _ d)  = fmap snd d
+getActivity (ENote _ _ d)     = pure d
+getActivity (ERest d)         = pure d
+getActivity (ERhythm d)       = pure d
+getActivity (EGroup g)        = g >>= getActivity
+getActivity (ECompress _ i d) = replicate i d
 
 
 getDuration :: Element -> Sum Int
@@ -244,6 +274,8 @@ groupMono f t as =
 drawStave :: Stave -> JSM Int
 drawStave (SGroup _) = undefined
 drawStave (Stave clef key timesig e) = do
+  modify $ field @"jssClef" .~ fromMaybe Treble clef
+
   (bs, h) <- drawBars 32 e
   let v = head bs
 
@@ -261,24 +293,23 @@ drawEverythingYo divName s = do
 var VF = Vex.Flow;
 var div = document.getElementById("{divName}")
 var renderer = new VF.Renderer(div, VF.Renderer.Backends.SVG);
-renderer.resize(620, 500);
 var {context} = renderer.getContext();
 {context}.setFont("Arial", 10, "").setBackgroundFillStyle("#eed");
 |]
   h <- drawStave s
-  emit [qc|renderer.resize(620, {firstStave + staveHeight * h})|]
+  emit [qc|renderer.resize({systemWidth + 20}, {firstStave + staveHeight * h})|]
 
 
 ------------------------------------------------------------------------------
 -- | How big we assume each activity is, in pixels
 activitySize :: Int
-activitySize = 45
+activitySize = 40
 
 
 ------------------------------------------------------------------------------
 -- | How wide we assume each system is, in pixels
 systemWidth :: Int
-systemWidth = 600
+systemWidth = 460
 
 
 buildSystems :: Int -> DSQ -> Element -> [[(Element, Int)]]

@@ -20,6 +20,7 @@ type Parser = Parsec MusicError String
 
 data MusicError
   = FlatsAndSharps
+  | WrongTuplet Int Int
   deriving (Eq, Ord, Show, Read)
 
 
@@ -81,8 +82,26 @@ parseMaybeDuration =
 parseOctave :: Parser Int
 parseOctave = do
   void $ optional $ string "@"
-  optional (fmap (read . pure) $ oneOf ['0'..'9'])
+  optional (fmap (read . pure) parseDigit)
     >>= maybe (pure 4) pure
+
+
+parseCompress :: Parser Element
+parseCompress = do
+  e <- between (char '(') (char ')') parseElement
+  let act = getActivity e
+  void $ char '^'
+  n <- read <$> many parseDigit
+
+  unless (n == length act)
+    . customFailure
+    . WrongTuplet n
+    $ length act
+
+  void $ char ':'
+  i <- read <$> some parseDigit
+  -- TODO(sandy): this is probably wrong
+  pure $ ECompress e i $ head act
 
 
 parseDiddle :: Parser Element
@@ -93,7 +112,7 @@ parseDiddle = do
      . between (char '[')
                (char ']')
      . flip sepBy (char ',') $ do
-         cs  <- some $ oneOf ['0'..'9']
+         cs  <- some parseDigit
          d <- parseMaybeDuration
          pure (fmap (read @Int . pure) cs, d)
   o <- parseOctave
@@ -131,7 +150,8 @@ parseRhythm = do
 parseElement :: Parser Element
 parseElement = do
   es <- flip sepBy1 space $ asum
-    [ try $ parseDiddle
+    [ parseCompress
+    , try $ parseDiddle
     , parseNoteElement
     , parseRhythm
     , parseRest
@@ -152,18 +172,21 @@ parseKey = optional $ parseNote <* space
 
 parseTimeSignature :: Parser (Maybe (Int, Int))
 parseTimeSignature = optional $ do
-  t <- some $ oneOf ['0'..'9']
+  t <- some parseDigit
   void $ char '/'
-  b <- some $ oneOf ['0'..'9']
+  b <- some parseDigit
   space
   pure (read t, read b)
+
+parseDigit :: Parser Char
+parseDigit = oneOf ['0'..'9']
 
 
 parseStave :: Parser Stave
 parseStave = do
   c <- parseClef
-  k <- parseKey
-  t <- parseTimeSignature
+  k <- try parseKey
+  t <- try parseTimeSignature
   e <- parseElement
   pure $ Stave c k t e
 

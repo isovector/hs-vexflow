@@ -29,6 +29,7 @@ data Element
   | ERest Dur
   | ERhythm Dur
   | EGroup [Element]
+  | ECompress Element Int Dur
   -- ETranspose
   deriving (Eq, Ord, Show, Read, Data, Typeable)
 
@@ -89,6 +90,10 @@ rest = ERest D4
 
 dur :: Dur -> Element -> Element
 dur d = everywhere $ mkT $ const d
+
+
+tuplet :: Int -> Dur -> Element -> Element
+tuplet i d e = ECompress e i d
 
 
 annotate :: String -> Element -> Element
