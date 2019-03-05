@@ -276,6 +276,9 @@ drawStave (SGroup _) = undefined
 drawStave (Stave clef key timesig e) = do
   modify $ field @"jssClef" .~ fromMaybe Treble clef
 
+  for_ key $ \k -> do
+    modify $ field @"jssAccidentals" .~ accidentalsForKey k
+
   (bs, h) <- drawBars 32 e
   let v = head bs
 
@@ -283,7 +286,6 @@ drawStave (Stave clef key timesig e) = do
   for_ timesig $ drawTimeSig v
   for_ key     $ \k -> do
     drawKeySig v k
-    modify $ field @"jssAccidentals" .~ accidentalsForKey k
   pure h
 
 

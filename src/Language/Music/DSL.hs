@@ -141,6 +141,7 @@ parseRest = do
   void $ char '%'
   ERest <$> parseDuration
 
+
 parseRhythm :: Parser Element
 parseRhythm = do
   void $ char 'X'
@@ -178,6 +179,7 @@ parseTimeSignature = optional $ do
   space
   pure (read t, read b)
 
+
 parseDigit :: Parser Char
 parseDigit = oneOf ['0'..'9']
 
@@ -195,5 +197,6 @@ musicParser
     :: String
     -> String
     -> Either (ParseErrorBundle String MusicError) String
-musicParser divName = fmap (runJSM . drawEverythingYo divName) . runParser parseStave ""
+musicParser divName =
+  fmap (runJSM . drawEverythingYo divName) . runParser parseStave ""
 
